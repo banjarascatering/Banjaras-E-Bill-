@@ -1,0 +1,64 @@
+name: Build Banjara's E-Bill APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Get the code
+        uses: actions/checkout@v4
+
+      - name: 2. Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 3. Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: 4. Install app tools
+        run: npm install
+
+      - name: 5. Make the app work offline (download fonts + libraries)
+        run: node scripts/prepare-web.js
+
+      - name: 6. Create the Android project
+        run: npx cap add android
+
+      - name: 7. Add icon, print support and permissions
+        run: |
+          APP=android/app/src/main
+          # icons
+          rm -rf $APP/res/mipmap-*
+          cp -r resources/android-res/mipmap-* $APP/res/
+          cp resources/android-res/values/ic_launcher_background.xml $APP/res/values/
+          # print bridge
+          cp android-overrides/MainActivity.java $APP/java/com/banjaras/ebill/MainActivity.java
+          # keep the screen portrait-friendly & allow file saving on old phones
+          sed -i 's#<application#<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />\n    <application#' $APP/AndroidManifest.xml
+          # app name on the home screen
+          sed -i 's#<string name="app_name">.*</string>#<string name="app_name">Banjara E-Bill</string>#' $APP/res/values/strings.xml
+          sed -i 's#<string name="title_activity_main">.*</string>#<string name="title_activity_main">Banjara E-Bill</string>#' $APP/res/values/strings.xml
+
+      - name: 8. Copy the web app into Android
+        run: npx cap sync android
+
+      - name: 9. Build the APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: 10. Save the APK so you can download it
+        uses: actions/upload-artifact@v4
+        with:
+          name: Banjaras-EBill-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
